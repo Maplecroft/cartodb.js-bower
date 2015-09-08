@@ -1,5 +1,5 @@
-// version: 3.15.1
-// sha: 410be0848ef13d6b44512163ed05e191039cd3e4
+// version: 3.15.3
+// sha: 2ee1e8cc7cb9a5d839137f24795420ab82b4083d
 
 ;(function() {
   this.cartodb = {};
@@ -1125,7 +1125,7 @@ var _ = this._; _.noConflict();
 
     var cdb = root.cdb = {};
 
-    cdb.VERSION = "3.15.1";
+    cdb.VERSION = "3.15.3";
     cdb.DEBUG = false;
 
     cdb.CARTOCSS_VERSIONS = {
@@ -1213,6 +1213,7 @@ var _ = this._; _.noConflict();
         'geo/leaflet/leaflet_wmslayer.js',
         'geo/leaflet/leaflet_cartodb_layergroup.js',
         'geo/leaflet/leaflet_cartodb_layer.js',
+        'geo/leaflet/leaflet.geometry.js',
         'geo/leaflet/leaflet.js',
 
         'geo/gmaps/gmaps_base.js',
@@ -1221,6 +1222,7 @@ var _ = this._; _.noConflict();
         'geo/gmaps/gmaps_tiledlayer.js',
         'geo/gmaps/gmaps_cartodb_layergroup.js',
         'geo/gmaps/gmaps_cartodb_layer.js',
+        'geo/gmaps/gmaps.geometry.js',
         'geo/gmaps/gmaps.js',
 
         'ui/common/dialog.js',
@@ -1684,7 +1686,41 @@ cdb.core.util._makeCRCTable = function() {
     crcTable[n] = c;
   }
   return crcTable;
+};
+
+cdb.core.util._inferBrowser = function(ua){
+  var browser = {};
+  ua = ua || window.navigator.userAgent;
+  function detectIE() {
+    var msie = ua.indexOf('MSIE ');
+    var trident = ua.indexOf('Trident/');
+    if (msie > -1 || trident > -1) return true;
+    return false;
+  };
+
+  function getIEVersion(){
+    if (!document.compatMode) return 5
+    if (!window.XMLHttpRequest) return 6
+    if (!document.querySelector) return 7;
+    if (!document.addEventListener) return 8;
+    if (!window.atob) return 9;
+    if (document.all) return 10;
+    else return 11;
+  };
+
+  if(detectIE()){
+    browser.ie = {version: getIEVersion()}
+  }
+
+  else if(ua.indexOf('Edge/') > -1) browser.edge = ua;
+  else if(ua.indexOf('Chrome') > -1) browser.chrome = ua;
+  else if(ua.indexOf('Firefox') > -1) browser.firefox = ua;
+  else if(ua.indexOf("Opera") > -1) browser.opera = ua;
+  else if(ua.indexOf("Safari") > -1) browser.safari = ua;
+  return browser;
 }
+
+cdb.core.util.browser = cdb.core.util._inferBrowser();
 
 ;(function() {
 
@@ -2005,6 +2041,7 @@ cdb.core.util._makeCRCTable = function() {
 
   }
 
+
   /*
    * sql.filter(sql.f().distance('< 10km')
    */
@@ -2024,6 +2061,353 @@ cdb.core.util._makeCRCTable = function() {
     return f;
   }
   */
+  function array_agg(s) {
+    return JSON.parse(s.replace(/^{/, '[').replace(/}$/,']'));
+  }
+
+
+  SQL.prototype.describeString = function(sql, column, callback) {
+
+      var s = [
+        'WITH t as (',
+        '        SELECT count(*) as total,',
+        '               count(DISTINCT {{column}}) as ndist',
+        '        FROM ({{sql}}) _wrap',
+        '      ), a as (',
+        '        SELECT ',
+        '          count(*) cnt, ',
+        '          {{column}}',
+        '        FROM ',
+        '          ({{sql}}) _wrap ',
+        '        GROUP BY ',
+        '          {{column}} ',
+        '        ORDER BY ',
+        '          cnt DESC',
+        '        ), b As (',
+        '         SELECT',
+        '          row_number() OVER (ORDER BY cnt DESC) rn,',
+        '          cnt',
+        '         FROM a',
+        '        ), c As (',
+        '        SELECT ',
+        '          sum(cnt) OVER (ORDER BY rn ASC) / t.total cumperc,',
+        '          rn,',
+        '          cnt ',
+        '         FROM b, t',
+        '         LIMIT 10',
+        '         ),',
+        'stats as (', 
+           'select count(distinct({{column}})) as uniq, ',
+           '       count(*) as cnt, ',
+           '       sum(case when COALESCE(NULLIF({{column}},\'\')) is null then 1 else 0 end)::numeric as null_count, ',
+           '       sum(case when COALESCE(NULLIF({{column}},\'\')) is null then 1 else 0 end)::numeric / count(*)::numeric as null_ratio, ',
+           // '       CDB_DistinctMeasure(array_agg({{column}}::text)) as cat_weight ',
+           '       (SELECT max(cumperc) weight FROM c) As skew ',
+           'from ({{sql}}) __wrap',
+        '),',
+        'hist as (', 
+           'select array_agg(row(d, c)) array_agg from (select distinct({{column}}) d, count(*) as c from ({{sql}}) __wrap, stats group by 1 limit 100) _a',
+        ')',
+        'select * from stats, hist'
+      ];
+
+      var query = Mustache.render(s.join('\n'), {
+        column: column, 
+        sql: sql
+      });
+
+      var normalizeName = function(str) {
+        var normalizedStr = str.replace(/^"(.+(?="$))?"$/, '$1'); // removes surrounding quotes
+        return normalizedStr.replace(/""/g, '"'); // removes duplicated quotes
+      }
+
+      this.execute(query, function(data) {
+        var row = data.rows[0];
+        var weight = 0;
+        var histogram = [];
+
+        try {
+          var s = array_agg(row.array_agg);
+
+          var histogram = _(s).map(function(row) {
+              var r = row.match(/\((.*),(\d+)/);
+              var name = normalizeName(r[1]);
+              return [name, +r[2]];
+          });
+
+          weight = row.skew * (1 - row.null_ratio) * (1 - row.uniq / row.cnt) * ( row.uniq > 1 ? 1 : 0);
+        } catch(e) {
+
+        }
+
+        callback({
+          type: 'string',
+          hist: histogram,
+          distinct: row.uniq,
+          count: row.cnt,
+          null_count: row.null_count,
+          null_ratio: row.null_ratio,
+          skew: row.skew,
+          weight: weight
+        });
+      });
+  }
+
+  SQL.prototype.describeDate = function(sql, column, callback) {
+    var s = [
+      'with minimum as (',
+        'SELECT min({{column}}) as start_time FROM ({{sql}}) _wrap), ',
+      'maximum as (SELECT max({{column}}) as end_time FROM ({{sql}}) _wrap), ',
+      'null_ratio as (SELECT sum(case when {{column}} is null then 1 else 0 end)::numeric / count(*)::numeric as null_ratio FROM ({{sql}}) _wrap), ',
+      'moments as (SELECT count(DISTINCT {{column}}) as moments FROM ({{sql}}) _wrap)',
+      'SELECT * FROM minimum, maximum, moments, null_ratio'
+    ];
+    var query = Mustache.render(s.join('\n'), {
+      column: column,
+      sql: sql
+    });
+
+    this.execute(query, function(data) {
+      var row = data.rows[0];
+      var e = new Date(row.end_time);
+      var s = new Date(row.start_time);
+
+      var moments = row.moments;
+
+      var steps = Math.min(row.moments, 1024);
+      
+      callback({
+        type: 'date',
+        start_time: s,
+        end_time: e,
+        range: e - s,
+        steps: steps,
+        null_ratio: row.null_ratio
+      });
+    });
+  }
+
+  SQL.prototype.describeBoolean = function(sql, column, callback){
+    var s = [
+      'with stats as (',
+            'select count(distinct({{column}})) as uniq,',
+                   'count(*) as cnt',
+              'from ({{sql}}) _wrap ',
+        '),',
+      'null_ratio as (',
+        'SELECT sum(case when {{column}} is null then 1 else 0 end)::numeric / count(*)::numeric as null_ratio FROM ({{sql}}) _wrap), ',
+      'true_ratio as (',
+        'SELECT sum(case when {{column}} is true then 1 else 0 end)::numeric / count(*)::numeric as true_ratio FROM ({{sql}}) _wrap) ',
+      'SELECT * FROM true_ratio, null_ratio, stats'
+    ];
+    var query = Mustache.render(s.join('\n'), {
+      column: column,
+      sql: sql
+    });
+
+    this.execute(query, function(data) {
+      var row = data.rows[0];
+      
+      callback({
+        type: 'boolean',
+        null_ratio: row.null_ratio,
+        true_ratio: row.true_ratio,
+        distinct: row.uniq,
+        count: row.cnt
+      });
+    });
+  }
+
+  SQL.prototype.describeGeom = function(sql, column, callback) {
+      var s = [
+        'with stats as (', 
+           'select st_asgeojson(st_extent({{column}})) as bbox',
+           'from ({{sql}}) _wrap',
+        '),',
+        'geotype as (', 
+          'select st_geometrytype({{column}}) as geometry_type from ({{sql}}) _w where {{column}} is not null limit 1',
+        '),',
+        'clusters as (', 
+          'with clus as (',
+            'SELECT distinct(ST_snaptogrid(the_geom, 10)) as cluster, count(*) as clustercount FROM ({{sql}}) _wrap group by 1 order by 2 desc limit 3),', 
+          'total as (',
+            'SELECT count(*) FROM ({{sql}}) _wrap)',
+          'SELECT sum(clus.clustercount)/sum(total.count) AS clusterrate FROM clus, total',
+        '),',
+        'density as (',
+          'SELECT count(*) / st_area(st_extent(the_geom)) as density FROM ({{sql}}) _wrap',
+        ')',
+        'select * from stats, geotype, clusters, density'
+      ];
+
+      var query = Mustache.render(s.join('\n'), {
+        column: column, 
+        sql: sql
+      });
+      function simplifyType(g) {
+        return { 
+        'st_multipolygon': 'polygon',
+        'st_polygon': 'polygon',
+        'st_multilinestring': 'line',
+        'st_linestring': 'line',
+        'st_multipoint': 'point',
+        'st_point': 'point'
+        }[g.toLowerCase()]
+      };
+
+      this.execute(query, function(data) {
+        var row = data.rows[0];
+        var bbox = JSON.parse(row.bbox).coordinates[0]
+        callback({
+          type: 'geom',
+          //lon,lat -> lat, lon
+          bbox: [[bbox[0][0],bbox[0][1]], [bbox[2][0], bbox[2][1]]],
+          geometry_type: row.geometry_type,
+          simplified_geometry_type: simplifyType(row.geometry_type),
+          cluster_rate: row.clusterrate,
+          density: row.density
+        });
+      });
+  }
+
+  SQL.prototype.columns = function(sql, options, callback) {
+    var args = arguments,
+        fn = args[args.length -1];
+    if(_.isFunction(fn)) {
+      callback = fn;
+    }
+    var s = "select * from (" + sql + ") __wrap limit 0";
+    var exclude = ['cartodb_id','latitude','longitude','created_at','updated_at','lat','lon','the_geom_webmercator'];
+    this.execute(s, function(data) {
+      var t = {}
+      for (var i in data.fields) {
+        if (exclude.indexOf(i) === -1) {
+          t[i] = data.fields[i].type;
+        }
+      }
+      callback(t);
+    });
+  };
+
+  SQL.prototype.describeFloat = function(sql, column, callback) {
+      var s = [
+        'with stats as (',
+            'select min({{column}}) as min,',
+                   'max({{column}}) as max,',
+                   'avg({{column}}) as avg,',
+                   'count(DISTINCT {{column}}) as cnt,',
+                   'count(distinct({{column}})) as uniq,',
+                   'count(*) as cnt,',
+                   'sum(case when {{column}} is null then 1 else 0 end)::numeric / count(*)::numeric as null_ratio,',
+                   'stddev_pop({{column}}) / count({{column}}) as stddev,',
+                   'CASE WHEN abs(avg({{column}})) > 1e-7 THEN stddev({{column}}) / abs(avg({{column}})) ELSE 1e12 END as stddevmean,',
+                    'CDB_DistType(array_agg("{{column}}"::numeric)) as dist_type ',
+              'from ({{sql}}) _wrap ',
+        '),',
+        'params as (select min(a) as min, (max(a) - min(a)) / 7 as diff from ( select {{column}} as a from ({{sql}}) _table_sql where {{column}} is not null ) as foo ),',
+        'histogram as (',
+           'select array_agg(row(bucket, range, freq)) as hist from (',
+           'select CASE WHEN uniq > 1 then width_bucket({{column}}, min-0.01*abs(min), max+0.01*abs(max), 100) ELSE 1 END as bucket,',
+                  'numrange(min({{column}})::numeric, max({{column}})::numeric) as range,',
+                  'count(*) as freq',
+             'from ({{sql}}) _w, stats',
+             'group by 1',
+             'order by 1',
+          ') __wrap',
+         '),',
+        'hist as (', 
+           'select array_agg(row(d, c)) cat_hist from (select distinct({{column}}) d, count(*) as c from ({{sql}}) __wrap, stats group by 1 limit 100) _a',
+        '),',
+         'buckets as (',
+            'select CDB_QuantileBins(array_agg(distinct({{column}}::numeric)), 7) as quantiles, ',
+            '       (select array_agg(x::numeric) FROM (SELECT (min + n * diff)::numeric as x FROM generate_series(1,7) n, params) p) as equalint,',
+            // '       CDB_EqualIntervalBins(array_agg({{column}}::numeric), 7) as equalint, ',
+            '       CDB_JenksBins(array_agg(distinct({{column}}::numeric)), 7) as jenks, ',
+            '       CDB_HeadsTailsBins(array_agg(distinct({{column}}::numeric)), 7) as headtails ',
+            'from ({{sql}}) _table_sql where {{column}} is not null',
+         ')',
+         'select * from histogram, stats, buckets, hist'
+      ];
+
+      var query = Mustache.render(s.join('\n'), {
+        column: column, 
+        sql: sql
+      });
+
+      this.execute(query, function(data) {
+        var row = data.rows[0];
+        var s = array_agg(row.hist);
+        var h = array_agg(row.cat_hist);
+        callback({
+          type: 'number',
+          cat_hist: 
+            _(h).map(function(row) {
+            var r = row.match(/\((.*),(\d+)/);
+            return [+r[1], +r[2]];
+          }),
+          hist: _(s).map(function(row) {
+            if(row.indexOf("empty") > -1) return;
+            var els = row.split('"');
+            return { index: els[0].replace(/\D/g,''), 
+                     range: els[1].split(",").map(function(d){return d.replace(/\D/g,'')}), 
+                     freq: els[2].replace(/\D/g,'') };
+          }),
+          stddev: row.stddev,
+          null_ratio: row.null_ratio,
+          count: row.cnt,
+          distinct: row.uniq,
+          //lstddev: row.lstddev,
+          avg: row.avg,
+          max: row.max,
+          min: row.min,
+          stddevmean: row.stddevmean,
+          weight: (row.uniq > 1 ? 1 : 0) * (1 - row.null_ratio) * (row.stddev < -1 ? 1 : (row.stddev < 1 ? 0.5 : (row.stddev < 3 ? 0.25 : 0.1))),
+          quantiles: row.quantiles,
+          equalint: row.equalint,
+          jenks: row.jenks,
+          headtails: row.headtails,
+          dist_type: row.dist_type
+        });
+      });
+  }
+
+  // describe a column
+  SQL.prototype.describe = function(sql, column, options) {
+      var self = this;
+      var args = arguments,
+          fn = args[args.length -1];
+      if(_.isFunction(fn)) {
+        var _callback = fn;
+      }
+      var callback = function(data) {
+        data.column = column;
+        _callback(data);
+      }
+      var s = "select * from (" + sql + ") __wrap limit 0";
+      this.execute(s, function(data) {
+
+        var type = (options && options.type) ? options.type : data.fields[column].type;
+
+        if (!type) {
+          callback(new Error("column does not exist"));
+          return;
+        }
+
+        else if (type === 'string') {
+          self.describeString(sql, column, callback);
+        } else if (type === 'number') {
+          self.describeFloat(sql, column, callback);
+        } else if (type === 'geometry') {
+          self.describeGeom(sql, column, callback);
+        } else if (type === 'date') {
+          self.describeDate(sql, column, callback);
+        } else if (type === 'boolean') {
+          self.describeBoolean(sql, column, callback);
+        } else {
+          callback(new Error("column type is not supported"));
+        }
+      });
+  }
 
   root.cartodb.SQL = SQL;
 
@@ -2629,7 +3013,7 @@ MapBase.prototype = {
     var layers = [];
     for(var i = 0; i < this.layers.length; ++i) {
       var layer = this.layers[i];
-      if(layer.options && !layer.options.hidden) {
+      if(this._isLayerVisible(layer)) {
         layers.push(i);
       }
     }
@@ -2942,7 +3326,7 @@ NamedMap.prototype = _.extend({}, MapBase.prototype, {
     this.layers = _.clone(named_map.layers) || [];
     for(var i = 0; i < this.layers.length; ++i) {
       var layer = this.layers[i];
-      layer.options = layer.options || { hidden: false };
+      layer.options = layer.options || { 'hidden': layer.visible === false };
       layer.options.layer_name = layer.layer_name;
     }
     this.named_map = named_map;
@@ -3236,8 +3620,10 @@ CartoDBSubLayer.prototype = _.extend({}, SubLayerBase.prototype, {
     }
 
     if (this.get('raster')) {
+      json.options.raster = true;
       json.options.geom_column = "the_raster_webmercator";
       json.options.geom_type = "raster";
+      json.options.raster_band = this.get('raster_band') || 0;
       // raster needs 2.3.0 to work
       json.options.cartocss_version = this.get('cartocss_version') || '2.3.0';
     }
@@ -3558,6 +3944,7 @@ window.vizjson = function(data) {
 
       this.userOptions = options;
 
+      this.options.api_key        = layerDefinition.api_key;
       this.options.user_name      = layerDefinition.user_name;
       this.options.tiler_protocol = layerDefinition.tiler_protocol;
       this.options.tiler_domain   = layerDefinition.tiler_domain;
@@ -3581,7 +3968,7 @@ window.vizjson = function(data) {
 
         var layerDefinition;
         var baseLayer = data.layers[0];
-        var dataLayer = data.layers[1];
+        var dataLayer = this._getDataLayer(data.layers);
 
         if (dataLayer.options) {
           this.options.user_name = dataLayer.options.user_name;
@@ -3595,11 +3982,9 @@ window.vizjson = function(data) {
         }
 
         this.auth_tokens = data.auth_tokens;
-
         this.endPoint = "/api/v1/map";
 
         var bbox = [];
-
         var bounds = data.bounds;
 
         if (bounds) {
@@ -3618,13 +4003,10 @@ window.vizjson = function(data) {
 
         /* If the vizjson contains a named map and a torque layer with a named map,
            ignore the torque layer */
-
         var ignoreTorqueLayer = false;
-
         var namedMap = this._getLayerByType(data.layers, "namedmap");
 
         if (namedMap) {
-
           var torque = this._getLayerByType(data.layers, "torque");
 
           if (torque && torque.options && torque.options.named_map) {
@@ -3632,9 +4014,7 @@ window.vizjson = function(data) {
             if (torque.options.named_map.name === namedMap.options.named_map.name) {
               ignoreTorqueLayer = true;
             }
-
           }
-
         }
 
         var layers = [];
@@ -3644,34 +4024,40 @@ window.vizjson = function(data) {
           layers.push(basemap);
         }
 
+        var labelsLayer;
         for (var i = 1; i < data.layers.length; i++) {
-
           var layer = data.layers[i];
 
           if (layer.type === "torque" && !ignoreTorqueLayer) {
-
             layers.push(this._getTorqueLayerDefinition(layer));
-
           } else if (layer.type === "namedmap") {
-
             layers.push(this._getNamedmapLayerDefinition(layer));
-
+          } else if (layer.type === "tiled") {
+            labelsLayer = this._getHTTPLayer(layer);
           } else if (layer.type !== "torque" && layer.type !== "namedmap") {
-
             var ll = this._getLayergroupLayerDefinition(layer);
 
             for (var j = 0; j < ll.length; j++) {
               layers.push(ll[j]);
             }
-
           }
+        }
+
+        // If there's a second `tiled` layer, it's a layer with labels and
+        // it needs to be on top of all other layers
+        if (labelsLayer) {
+          layers.push(labelsLayer);
         }
 
         this.options.layers = { layers: layers };
         this._requestLayerGroupID();
-
       }
+    },
 
+    _getDataLayer: function(layers) {
+      return this._getLayerByType(layers, "namedmap") ||
+        this._getLayerByType(layers, "layergroup") ||
+          this._getLayerByType(layers, "torque");
     },
 
     visibleLayers: function() {
@@ -3731,7 +4117,7 @@ window.vizjson = function(data) {
 
     },
 
-    _getHTTPBasemapLayer: function(basemap) {
+    _getHTTPLayer: function(basemap) {
 
       var urlTemplate = basemap.options.urlTemplate;
 
@@ -3776,7 +4162,7 @@ window.vizjson = function(data) {
         if (type === "plain") {
           return this._getPlainBasemapLayer(basemap.options.color);
         } else {
-          return this._getHTTPBasemapLayer(basemap);
+          return this._getHTTPLayer(basemap);
         }
 
       }
