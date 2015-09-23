@@ -1,7 +1,8 @@
-// cartodb.js version: 3.15.6
+// cartodb.js version: 3.15.7
 // uncompressed version: cartodb.uncompressed.js
-// sha: 6b3409e53e98d6d0c06c7e0c95afd4c2373e1b82
+// sha: d00902ce92edb8cea0908456d6d8cf3340ffae78
 (function() {
+  var define;  // Undefine define (require.js), see https://github.com/CartoDB/cartodb.js/issues/543
   var root = this;
 
   if(!true) {
@@ -25660,7 +25661,7 @@ if (typeof window !== 'undefined') {
 
     var cdb = root.cdb = {};
 
-    cdb.VERSION = "3.15.6";
+    cdb.VERSION = "3.15.7";
     cdb.DEBUG = false;
 
     cdb.CARTOCSS_VERSIONS = {
