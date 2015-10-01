@@ -1,5 +1,5 @@
-// version: 3.15.7
-// sha: fd541133d63799274a031d3785fb909954352ccc
+// version: 3.15.8
+// sha: 7c495aa2082090452a54cf492e4f70a588abcb68
 
 ;(function() {
   this.cartodb = {};
@@ -1125,7 +1125,7 @@ var _ = this._; _.noConflict();
 
     var cdb = root.cdb = {};
 
-    cdb.VERSION = "3.15.7";
+    cdb.VERSION = "3.15.8";
     cdb.DEBUG = false;
 
     cdb.CARTOCSS_VERSIONS = {
@@ -1611,12 +1611,12 @@ cdb.core.util.array2hex = function(byteArr) {
   return cdb.core.util.btoa(encoded.join(''));
 };
 
-cdb.core.util.btoa = function() {
+cdb.core.util.btoa = function(data) {
   if (typeof window['btoa'] == 'function') {
-    return cdb.core.util.encodeBase64Native;
+    return cdb.core.util.encodeBase64Native(data);
   };
 
-  return cdb.core.util.encodeBase64;
+  return cdb.core.util.encodeBase64(data);
 };
 
 cdb.core.util.encodeBase64Native = function (input) {
@@ -1721,6 +1721,7 @@ cdb.core.util._inferBrowser = function(ua){
 }
 
 cdb.core.util.browser = cdb.core.util._inferBrowser();
+
 
 ;(function() {
 
