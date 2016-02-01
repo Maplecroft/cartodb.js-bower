@@ -1,5 +1,5 @@
-// version: 3.15.8
-// sha: 7c495aa2082090452a54cf492e4f70a588abcb68
+// version: 3.15.9
+// sha: f41a64c82ea69845e6a25aab947b60677dfe3f49
 
 if(cartodb){
 	// Keep the global version of jQuery, if there is any

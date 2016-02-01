@@ -1,5 +1,5 @@
-// version: 3.15.8
-// sha: 7c495aa2082090452a54cf492e4f70a588abcb68
+// version: 3.15.9
+// sha: f41a64c82ea69845e6a25aab947b60677dfe3f49
 
 ;(function() {
   this.cartodb = {};
@@ -1125,7 +1125,7 @@ var _ = this._; _.noConflict();
 
     var cdb = root.cdb = {};
 
-    cdb.VERSION = "3.15.8";
+    cdb.VERSION = "3.15.9";
     cdb.DEBUG = false;
 
     cdb.CARTOCSS_VERSIONS = {
@@ -1774,7 +1774,7 @@ cdb.core.util.browser = cdb.core.util._inferBrowser();
 
   /**
    * var sql = new SQL('cartodb_username');
-   * sql.execute("select * form {table} where id = {id}", {
+   * sql.execute("select * from {{ table }} where id = {{ id }}", {
    *    table: 'test',
    *    id: '1'
    * })
