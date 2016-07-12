@@ -1,5 +1,5 @@
-// version: 3.15.9
-// sha: f41a64c82ea69845e6a25aab947b60677dfe3f49
+// version: 3.15.10
+// sha: b0f743801efcdf67255637c955b8fcfc9e811f64
 
 ;(function() {
   this.cartodb = {};
@@ -1125,7 +1125,7 @@ var _ = this._; _.noConflict();
 
     var cdb = root.cdb = {};
 
-    cdb.VERSION = "3.15.9";
+    cdb.VERSION = "3.15.10";
     cdb.DEBUG = false;
 
     cdb.CARTOCSS_VERSIONS = {
@@ -1759,7 +1759,7 @@ cdb.core.util.browser = cdb.core.util._inferBrowser();
       if(opts && opts.completeDomain) {
         template = opts.completeDomain;
       } else {
-        var host = opts.host || 'cartodb.com';
+        var host = opts.host || 'carto.com';
         var protocol = opts.protocol || 'https';
         template = protocol + '://{user}.' + host;
       }
@@ -3905,7 +3905,7 @@ window.vizjson = function(data) {
       center: [0, 0],
       size:  [320, 240],
       tiler_port: 80,
-      tiler_domain: "cartodb.com"
+      tiler_domain: "carto.com"
     };
 
   };
@@ -4397,7 +4397,7 @@ window.vizjson = function(data) {
   root.cartodb = root.cartodb || {};
 
   var defaults = {
-    tiler_domain:   "cartodb.com",
+    tiler_domain:   "carto.com",
     tiler_port:     "80",
     tiler_protocol: "http",
     subdomains: ['{s}'],
