@@ -1,6 +1,6 @@
 // cartodb.js version: 3.15.10
 // uncompressed version: cartodb.uncompressed.js
-// sha: b0f743801efcdf67255637c955b8fcfc9e811f64
+// sha: 2eabfd7eb0369f697a31a0ec722ff5a8a52859f4
 (function() {
   var define;  // Undefine define (require.js), see https://github.com/CartoDB/cartodb.js/issues/543
   var root = this;
@@ -26006,7 +26006,7 @@ if(!window.JSON) {
 
     cdb.config = new Config();
     cdb.config.set({
-      cartodb_attributions: "CARTO <a href=\"https://carto.com/attributions\" target=\"_blank\">attribution</a>",
+      cartodb_attributions: "© <a href=\"https://carto.com/attributions\" target=\"_blank\">CARTO</a>",
       cartodb_logo_link: "http://www.carto.com"
     });
 
@@ -38831,7 +38831,14 @@ var Vis = cdb.core.View.extend({
     this._applyOptions(data, options);
 
     // to know if the logo is enabled search in the overlays and see if logo overlay is included and is shown
-    var has_logo_overlay = !!_.find(data.overlays, function(o) { return o.type === 'logo' && o.options.display; });
+    var has_logo_overlay = !!_.find(data.overlays, function(o) {
+      // display option is not implemented for builder, if type logo is present just it
+      if (o.options == null) {
+        return (o.type === 'logo');
+      }
+
+      return o.type === 'logo' && o.options.display;
+    });
 
     this.cartodb_logo = (options.cartodb_logo !== undefined) ? options.cartodb_logo: has_logo_overlay;
 
