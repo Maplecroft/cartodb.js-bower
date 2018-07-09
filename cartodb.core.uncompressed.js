@@ -1,5 +1,5 @@
-// version: 3.15.16
-// sha: fd94cff749f2cb0941ac8b33f3b48c2a75674cfa
+// version: 3.15.18
+// sha: 5fd98ca6f395ddee952f439b38960b7e3148c7dd
 
 ;(function() {
   this.cartodb = {};
@@ -1125,7 +1125,7 @@ var _ = this._; _.noConflict();
 
     var cdb = root.cdb = {};
 
-    cdb.VERSION = "3.15.16";
+    cdb.VERSION = "3.15.18";
     cdb.DEBUG = false;
 
     cdb.CARTOCSS_VERSIONS = {
