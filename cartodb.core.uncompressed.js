@@ -1,5 +1,5 @@
 // version: 3.15.18
-// sha: 5fd98ca6f395ddee952f439b38960b7e3148c7dd
+// sha: 1a5b4543f38bb4855b214b3134fb0ec3cfda037f
 
 ;(function() {
   this.cartodb = {};
