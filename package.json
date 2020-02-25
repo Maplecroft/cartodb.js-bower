@@ -55,8 +55,5 @@
     "time-grunt": "~0.3.1",
     "underscore": "~1.7.0"
   },
-  "files": [
-    "dist"
-  ],
   "main": "cartodb.js"
 }
